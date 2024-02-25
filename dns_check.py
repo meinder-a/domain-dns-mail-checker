@@ -3,11 +3,13 @@ This module checks various DNS configurations for mailing security of a domain.
 It includes checks for MX, A, AAAA, SPF, DMARC, and DKIM records.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import List, Callable, Optional
+import json
+import re
+import sys
 import dns.resolver
 import dns.exception
-import re
 
 @dataclass
 class RecordResult:
@@ -16,8 +18,12 @@ class RecordResult:
     detail: str
     score: int
 
+    def to_dict(self):
+        return asdict(self)
+
 @dataclass
 class RecordsResult:
+    """Class to store all DNS records check results."""
     mx: RecordResult
     a: RecordResult
     aaaa: RecordResult
@@ -26,11 +32,17 @@ class RecordsResult:
     dkim: RecordResult
     bimi: RecordResult
 
+    def to_dict(self):
+        return {key: getattr(self, key).to_dict() for key in self.__dict__}
+
 @dataclass
 class DNSCheckResult:
-    """Class to store overall DNS check results."""
+    """Class to store overall results."""
     records: RecordsResult
     total_score: int
+
+    def to_dict(self):
+        return {"records": self.records.to_dict(), "total_score": self.total_score}
 
 common_dkim_selectors = ['default', 'google', 'mail', 'k1', 'smtp']
 
@@ -88,14 +100,14 @@ def process_bimi(domain: str) -> RecordResult:
         if bimi_record:
             # Extract SVG URL from the BIMI record
             svg_url = extract_svg_url(bimi_record[0])
-            return RecordResult(bimi_record, f"BIMI record found: {svg_url}", 1)
+            return RecordResult(bimi_record, f"BIMI record found: <img src=\"{svg_url}\">", 1)
         return RecordResult(None, "No BIMI record found", 0)
     except dns.exception.DNSException:
         return RecordResult(None, "Failed to fetch BIMI record", 0)
 
 def extract_svg_url(bimi_record: str) -> str:
     """Extract the SVG URL from a BIMI record."""
-    match = re.search(r'l=([^;]+);', bimi_record)
+    match = re.search(r'l=([^";]+)', bimi_record)
     return match.group(1) if match else "No SVG URL found"
 
 def check_dns(domain: str) -> DNSCheckResult:
@@ -114,3 +126,13 @@ def check_dns(domain: str) -> DNSCheckResult:
     total_score = sum(result.score for result in records_result.values())
 
     return DNSCheckResult(records=RecordsResult(**records_result), total_score=total_score)
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python3 dns_check.py example.com")
+        exit(-1)
+
+    domain: str = sys.argv[1]
+    result = check_dns(domain)
+    jsonData: str = json.dumps(result.to_dict(), indent=4)
+    print(jsonData)
