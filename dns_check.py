@@ -8,6 +8,8 @@ from typing import List, Callable, Optional
 import json
 import re
 import sys
+import smtplib
+import socket
 import dns.resolver
 import dns.exception
 
@@ -18,6 +20,16 @@ class RecordResult:
     record_data: Optional[List[str]]
     detail: str
     score: int
+
+    def to_dict(self):
+        """ Needed for serialization """
+        return asdict(self)
+
+
+@dataclass
+class ServiceCheckResult:
+    """Class to store service check results."""
+    smtp: RecordResult
 
     def to_dict(self):
         """ Needed for serialization """
@@ -44,12 +56,14 @@ class RecordsResult:
 class DNSCheckResult:
     """Class to store overall results."""
     records: RecordsResult
+    services: ServiceCheckResult
     total_score: int
 
     def to_dict(self):
         """ Needed for serialization """
         return {
             "records": self.records.to_dict(),
+            "services": self.services.to_dict(),
             "total_score": self.total_score}
 
 
@@ -71,6 +85,30 @@ def process_mx(answer: dns.resolver.Answer) -> RecordResult:
     return RecordResult([str(rdata) for rdata in answer], "Found MX record", 1)
 
 
+def check_smtp_server(answer: dns.resolver.Answer) -> RecordResult:
+    """Check if SMTP server is running and verify its configuration."""
+    servers = [str(rdata) for rdata in answer]
+    for server in servers:
+        mx_server_ip = server.split(' ')[-1]
+        ports = [25, 465, 587]
+        for port in ports:
+            try:
+                with smtplib.SMTP(mx_server_ip, port, timeout=3) as server:
+                    code, _ = server.noop()
+                    if code == 250:  # 250 is a successful response from SMTP server
+                        return RecordResult(
+                            [f"SMTP server running on {mx_server_ip} {port}"],
+                            "SMTP server found",
+                            1)
+            except (socket.gaierror, socket.timeout, smtplib.SMTPException, ConnectionRefusedError):
+                continue
+
+    return RecordResult(
+        None, "Unable to confirm SMTP server on common ports. This does not necessarily \
+                        indicate the absence of an SMTP server; it may be due to security measures, \
+                        non-standard configurations, or other network policies.", 0)
+
+
 def process_a_aaaa(
         answer: dns.resolver.Answer,
         record_type: str) -> RecordResult:
@@ -81,11 +119,11 @@ def process_a_aaaa(
 
 def process_spf(answer: dns.resolver.Answer) -> RecordResult:
     """Process SPF record query results."""
-    spf_records = [str(rdata) for rdata in answer if "v=spf1" in str(rdata)]
+    records = [str(rdata) for rdata in answer if "v=spf1" in str(rdata)]
     return RecordResult(
-        spf_records,
+        records,
         "Found SPF record",
-        1 if spf_records else 0)
+        1 if records else 0)
 
 
 def process_dmarc(domain: str) -> RecordResult:
@@ -129,7 +167,13 @@ def process_bimi(domain: str) -> RecordResult:
             # Extract SVG URL from the BIMI record
             svg_url = extract_svg_url(bimi_record[0])
             return RecordResult(
-                bimi_record, f"BIMI record found: <img src=\"{svg_url}\">", 1)
+                bimi_record,
+                f"BIMI record found: \
+                <img \
+                    style=\"display:in-line-block;\" \
+                    width=\"24\" height=\"24\" src=\"{svg_url}\" \
+                >",
+                1)
         return RecordResult(None, "No BIMI record found", 0)
     except dns.exception.DNSException:
         return RecordResult(None, "Failed to fetch BIMI record", 0)
@@ -171,10 +215,15 @@ def check_dns(domain: str) -> DNSCheckResult:
     records_result = {key: func() for key, func in dns_check_functions.items()}
     total_score = sum(result.score for result in records_result.values())
 
+    smtp_check_result: RecordResult = dns_query(
+        domain,
+        "MX",
+        check_smtp_server)
+
     return DNSCheckResult(
-        records=RecordsResult(
-            **records_result),
-        total_score=total_score)
+        records=RecordsResult(**records_result),
+        services=ServiceCheckResult(smtp=smtp_check_result),
+        total_score=total_score + smtp_check_result.score)
 
 
 if __name__ == "__main__":

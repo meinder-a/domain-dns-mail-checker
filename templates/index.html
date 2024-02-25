@@ -11,6 +11,25 @@
       transform: translateY(-5px);
       transition: transform 0.3s;
     }
+
+    .loader {
+      border: 4px solid #111827;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 2s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
   </style>
 </head>
 
@@ -24,21 +43,24 @@
         <input type="text" id="domainInput"
           class="shadow border outline-double outline-2 outline-offset-2 outline-transparent rounded py-2 px-3 text-blue-300 bg-gray-900 border-gray-800 focus:outline-none focus:ring hover:border-gray-700"
           placeholder="Enter a domain">
-        <button type="submit" class="ml-4 bg-gray-900 border border-gray-800 hover:border-gray-700 text-blue-200 font-bold py-2 px-4 rounded">
+        <button type="submit"
+          class="ml-4 bg-gray-900 border border-gray-800 hover:border-gray-700 text-blue-200 font-bold py-2 px-4 rounded">
           Check
         </button>
       </div>
     </form>
 
-    <div id="dnsResults" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <!-- DNS Records will be displayed here -->
-    </div>
-
-    <div class="mt-8 invisible" id="dnsHealth">
+    <div class="mb-8 invisible" id="dnsHealth">
       <div id="dnsHealthDetails"
         class="p-4 bg-gray-900 shadow rounded-lg transition duration-500 ease-in-out transform hover:-translate-y-1 hover:shadow-lg text-blue-200">
       </div>
     </div>
+
+    <div id="dnsResults" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+  </div>
+
+  <div id="loadingScreen" class="hidden fixed inset-0 bg-gray-800 bg-opacity-75 flex justify-center items-center">
+    <div class="loader"></div>
   </div>
 
   <script>
@@ -48,23 +70,27 @@
       fetchAndDisplayResults(domain);
     });
 
-    function createRecordElement(recordType, data) {
+    function createRecordElement(evidenceType, recordType, data) {
       const statusColor = data.score > 0 ? 'text-green-500' : 'text-red-500';
       const recordElement = document.createElement('div');
       recordElement.className = 'bg-gray-900 shadow overflow-hidden sm:rounded-lg p-4 card-transition';
       recordElement.innerHTML = `
         <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
-          <h3 class="text-lg leading-6 font-medium text-blue-100"><span class="font-bold">${recordType.toUpperCase()}</span> Record</h3>
+          <h3 class="text-lg leading-6 font-medium text-blue-100"><span class="font-bold">${recordType.toUpperCase()}</span> ${evidenceType}</h3>
         </div>
         <div class="border-t border-gray-800">
                     <dl>
-                        <div class="bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                        <div class="bg-gray-900 px-3 py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                             <dt class="text-sm font-medium text-gray-400">Status</dt>
-                            <dd class="mt-1 text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.detail}</dd>
+                            <dd class="mt-1 flex gap-1 inline-block text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.detail}</dd>
                         </div>
-                        <div class="bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                        <div class="bg-gray-900 px-3 py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                             <dt class="text-sm font-medium text-gray-400">Score</dt>
-                            <dd class="mt-1 text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.score}</dd>
+                            <dd class="mt-1 flex gap-1 inline-block text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.score}</dd>
+                        </div>
+                        <div class="bg-gray-900 px-3 py-4 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                            <dt class="text-sm font-medium text-gray-400">Data</dt>
+                            <textarea rows="2" class="mt-1 text-ellipsis overflow-hidden p-1 bg-gray-800 flex gap-1 inline-block text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.record_data}</textarea>
                         </div>
                     </dl>
         </div>
@@ -73,39 +99,46 @@
     }
 
     function displayResults(domain, dnsData) {
-      const domainContainer = document.getElementById("domain");
       const resultsContainer = document.getElementById('dnsResults');
       const healthContainer = document.getElementById('dnsHealth');
       const healthDetails = document.getElementById('dnsHealthDetails');
 
       resultsContainer.innerHTML = '';
       for (const [recordType, data] of Object.entries(dnsData.records)) {
-        resultsContainer.appendChild(createRecordElement(recordType, data));
+        resultsContainer.appendChild(createRecordElement('Record', recordType, data));
+      }
+
+      for (const [serviceType, data] of Object.entries(dnsData.services)) {
+        resultsContainer.appendChild(createRecordElement('Service', serviceType, data));
       }
 
       const scoreThreshold = 5;
-      const maxScore = 8;
+      const maxScore = 9;
       const totalScore = dnsData.total_score;
       const healthColorClass = totalScore < scoreThreshold ? 'text-red-600' : 'text-green-600';
 
       const healthInfo = `
-            <h2 class="text-2xl mb-4 ${healthColorClass}">Result</h2>
+            <h2 class="text-2xl mb-4 ${healthColorClass}">Result for <span class="font-bold">${domain}</h2>
             <p class="text-lg">Based on the DNS checks, the overall health of the domain is assessed. 
             A higher score indicates better configuration and security.</p>
             <p class="text-xl font-bold mt-4 ${healthColorClass}">Total Score: ${totalScore}/${maxScore}</p>
         `;
       healthContainer.classList.remove("invisible")
       healthDetails.innerHTML = healthInfo;
-      domainContainer.innerHTML = domain;
     }
 
     function fetchAndDisplayResults(domain) {
+      document.getElementById('loadingScreen').classList.remove('hidden');
       fetch(`/dns-check/${domain}`)
         .then(response => response.json())
         .then(data => {
+          document.getElementById('loadingScreen').classList.add('hidden');
           displayResults(domain, data)
         })
-        .catch(error => console.error('Error:', error));
+        .catch(error => {
+          document.getElementById('loadingScreen').classList.add('hidden');
+          console.error('Error:', error);
+        });
     }
   </script>
 </body>
