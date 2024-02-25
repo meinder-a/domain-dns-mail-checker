@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MailIntegrity</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    .card-transition:hover {
+      transform: translateY(-5px);
+      transition: transform 0.3s;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-800 font-sans leading-normal tracking-normal">
+  <div class="container mx-auto my-8">
+    <h1 class="text-4xl mb-8 text-center font-bold text-blue-100">MailTegrity</h1>
+    <h2 class="text-2xl mb-8 text-center text-blue-200">Domain Email Security Diagnostic Tool</h2>
+
+    <form id="domainForm" class="mb-8">
+      <div class="flex justify-center">
+        <input type="text" id="domainInput"
+          class="shadow border outline-double outline-2 outline-offset-2 outline-transparent rounded py-2 px-3 text-blue-300 bg-gray-900 border-gray-800 focus:outline-none focus:ring hover:border-gray-700"
+          placeholder="Enter a domain">
+        <button type="submit" class="ml-4 bg-gray-900 border border-gray-800 hover:border-gray-700 text-blue-200 font-bold py-2 px-4 rounded">
+          Check
+        </button>
+      </div>
+    </form>
+
+    <div id="dnsResults" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <!-- DNS Records will be displayed here -->
+    </div>
+
+    <div class="mt-8 invisible" id="dnsHealth">
+      <div id="dnsHealthDetails"
+        class="p-4 bg-gray-900 shadow rounded-lg transition duration-500 ease-in-out transform hover:-translate-y-1 hover:shadow-lg text-blue-200">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('domainForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const domain = document.getElementById('domainInput').value;
+      fetchAndDisplayResults(domain);
+    });
+
+    function createRecordElement(recordType, data) {
+      const statusColor = data.score > 0 ? 'text-green-500' : 'text-red-500';
+      const recordElement = document.createElement('div');
+      recordElement.className = 'bg-gray-900 shadow overflow-hidden sm:rounded-lg p-4 card-transition';
+      recordElement.innerHTML = `
+        <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
+          <h3 class="text-lg leading-6 font-medium text-blue-100"><span class="font-bold">${recordType.toUpperCase()}</span> Record</h3>
+        </div>
+        <div class="border-t border-gray-800">
+                    <dl>
+                        <div class="bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                            <dt class="text-sm font-medium text-gray-400">Status</dt>
+                            <dd class="mt-1 text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.detail}</dd>
+                        </div>
+                        <div class="bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                            <dt class="text-sm font-medium text-gray-400">Score</dt>
+                            <dd class="mt-1 text-sm ${statusColor} sm:mt-0 sm:col-span-2">${data.score}</dd>
+                        </div>
+                    </dl>
+        </div>
+      `;
+      return recordElement;
+    }
+
+    function displayResults(domain, dnsData) {
+      const domainContainer = document.getElementById("domain");
+      const resultsContainer = document.getElementById('dnsResults');
+      const healthContainer = document.getElementById('dnsHealth');
+      const healthDetails = document.getElementById('dnsHealthDetails');
+
+      resultsContainer.innerHTML = '';
+      for (const [recordType, data] of Object.entries(dnsData.records)) {
+        resultsContainer.appendChild(createRecordElement(recordType, data));
+      }
+
+      const scoreThreshold = 5;
+      const maxScore = 8;
+      const totalScore = dnsData.total_score;
+      const healthColorClass = totalScore < scoreThreshold ? 'text-red-600' : 'text-green-600';
+
+      const healthInfo = `
+            <h2 class="text-2xl mb-4 ${healthColorClass}">Result</h2>
+            <p class="text-lg">Based on the DNS checks, the overall health of the domain is assessed. 
+            A higher score indicates better configuration and security.</p>
+            <p class="text-xl font-bold mt-4 ${healthColorClass}">Total Score: ${totalScore}/${maxScore}</p>
+        `;
+      healthContainer.classList.remove("invisible")
+      healthDetails.innerHTML = healthInfo;
+      domainContainer.innerHTML = domain;
+    }
+
+    function fetchAndDisplayResults(domain) {
+      fetch(`/dns-check/${domain}`)
+        .then(response => response.json())
+        .then(data => {
+          displayResults(domain, data)
+        })
+        .catch(error => console.error('Error:', error));
+    }
+  </script>
+</body>
+
+</html>

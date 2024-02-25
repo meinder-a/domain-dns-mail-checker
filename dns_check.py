@@ -4,11 +4,10 @@ It includes checks for MX, A, AAAA, SPF, DMARC, and DKIM records.
 """
 
 from dataclasses import dataclass
-import sys
-import json
 from typing import List, Callable, Optional
 import dns.resolver
 import dns.exception
+import re
 
 @dataclass
 class RecordResult:
@@ -18,14 +17,19 @@ class RecordResult:
     score: int
 
 @dataclass
-class DNSCheckResult:
-    """Class to store overall DNS check results."""
+class RecordsResult:
     mx: RecordResult
     a: RecordResult
     aaaa: RecordResult
     spf: RecordResult
     dmarc: RecordResult
     dkim: RecordResult
+    bimi: RecordResult
+
+@dataclass
+class DNSCheckResult:
+    """Class to store overall DNS check results."""
+    records: RecordsResult
     total_score: int
 
 common_dkim_selectors = ['default', 'google', 'mail', 'k1', 'smtp']
@@ -75,30 +79,38 @@ def process_dkim(domain: str) -> RecordResult:
             continue
     return RecordResult(None, "No DKIM record found with common selectors", 0)
 
+def process_bimi(domain: str) -> RecordResult:
+    """Check and process BIMI record for the given domain."""
+    bimi_record_domain = f"default._bimi.{domain}"
+    try:
+        answer = dns.resolver.resolve(bimi_record_domain, "TXT")
+        bimi_record = [str(rdata) for rdata in answer if "v=BIMI1" in str(rdata)]
+        if bimi_record:
+            # Extract SVG URL from the BIMI record
+            svg_url = extract_svg_url(bimi_record[0])
+            return RecordResult(bimi_record, f"BIMI record found: {svg_url}", 1)
+        return RecordResult(None, "No BIMI record found", 0)
+    except dns.exception.DNSException:
+        return RecordResult(None, "Failed to fetch BIMI record", 0)
+
+def extract_svg_url(bimi_record: str) -> str:
+    """Extract the SVG URL from a BIMI record."""
+    match = re.search(r'l=([^;]+);', bimi_record)
+    return match.group(1) if match else "No SVG URL found"
+
 def check_dns(domain: str) -> DNSCheckResult:
     """Check various DNS records for the given domain."""
-    mx_result = dns_query(domain, "MX", process_mx)
-    a_result = dns_query(domain, "A", lambda a: process_a_aaaa(a, "A"))
-    aaaa_result = dns_query(domain, "AAAA", lambda a: process_a_aaaa(a, "AAAA"))
-    spf_result = dns_query(domain, "TXT", process_spf)
-    dmarc_result = process_dmarc(domain)
-    dkim_result = process_dkim(domain)
+    dns_check_functions = {
+        'mx': lambda: dns_query(domain, "MX", process_mx),
+        'a': lambda: dns_query(domain, "A", lambda a: process_a_aaaa(a, "A")),
+        'aaaa': lambda: dns_query(domain, "AAAA", lambda a: process_a_aaaa(a, "AAAA")),
+        'spf': lambda: dns_query(domain, "TXT", process_spf),
+        'dmarc': lambda: process_dmarc(domain),
+        'dkim': lambda: process_dkim(domain),
+        'bimi': lambda: process_bimi(domain)
+    }
 
-    total_score = sum([mx_result.score, a_result.score, aaaa_result.score,
-                       spf_result.score, dmarc_result.score, dkim_result.score])
+    records_result = {key: func() for key, func in dns_check_functions.items()}
+    total_score = sum(result.score for result in records_result.values())
 
-    return DNSCheckResult(mx_result, a_result, aaaa_result, spf_result,
-                          dmarc_result, dkim_result, total_score)
-
-def main():
-    """Main function to check DNS configurations for a given domain."""
-    if len(sys.argv) != 2:
-        print("This script requires a domain name as the first argument.")
-        sys.exit(-1)
-
-    domain = sys.argv[1]
-    result = check_dns(domain)
-    print(json.dumps(result, default=lambda o: o.__dict__, indent=4))
-
-if __name__ == "__main__":
-    main()
+    return DNSCheckResult(records=RecordsResult(**records_result), total_score=total_score)
