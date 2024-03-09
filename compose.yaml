@@ -3,4 +3,11 @@ services:
   web:
     build: .
     ports:
-      - "5000:5000"
+      - "8000:8000"
+    networks:
+      - caddy_mynetwork
+
+networks:
+  caddy_mynetwork:
+    external: true
+

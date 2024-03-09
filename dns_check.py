@@ -100,7 +100,7 @@ def check_smtp_server(answer: dns.resolver.Answer) -> RecordResult:
                             [f"SMTP server running on {mx_server_ip} {port}"],
                             "SMTP server found",
                             1)
-            except (socket.gaierror, socket.timeout, smtplib.SMTPException, ConnectionRefusedError):
+            except (socket.gaierror, socket.timeout, smtplib.SMTPException, ConnectionRefusedError, OSError):
                 continue
 
     return RecordResult(
